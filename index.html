@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delivery ECO - Menú Completo</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        :root { --primary: #e74c3c; --secondary: #27ae60; --dark: #2c3e50; --bg: #f4f7f6; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; padding: 10px; color: var(--dark); }
+        .container { max-width: 500px; margin: auto; }
+        .card { background: white; border-radius: 20px; padding: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); margin-bottom: 15px; }
+        h2 { text-align: center; color: var(--primary); margin: 5px 0 15px 0; }
+        label { font-weight: bold; display: block; margin: 10px 0 5px 0; font-size: 0.9rem; }
+        select, input { width: 100%; padding: 12px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 12px; font-size: 1rem; box-sizing: border-box; }
+        #map { height: 280px; width: 100%; border-radius: 15px; border: 2px solid #fff; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+        .step { display: none; }
+        .step.active { display: block; animation: fadeIn 0.4s; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .btn-local { background: white; border: 2px solid var(--primary); color: var(--primary); padding: 15px; border-radius: 12px; width: 100%; font-weight: bold; margin-bottom: 10px; cursor: pointer; text-align: left; display: flex; justify-content: space-between; align-items: center; }
+        .seccion-titulo { background: var(--dark); color: white; padding: 8px 12px; border-radius: 8px; font-weight: bold; margin: 20px 0 10px 0; font-size: 0.9rem; letter-spacing: 1px; }
+        .producto { padding: 12px 0; border-bottom: 1px solid #eee; }
+        .grid-precios { display: grid; grid-template-columns: repeat(auto-fill, minmax(85px, 1fr)); gap: 6px; margin-top: 8px; }
+        .btn-p { background: #fff; border: 1px solid #ddd; padding: 6px; border-radius: 8px; font-size: 0.75rem; cursor: pointer; }
+        .btn-p:hover { background: var(--secondary); color: white; }
+        .footer-pedido { position: sticky; bottom: 0; background: white; padding: 15px; border-radius: 25px 25px 0 0; box-shadow: 0 -10px 20px rgba(0,0,0,0.1); z-index: 1000; }
+        .item-carrito { display: flex; justify-content: space-between; background: #fffceb; padding: 6px 10px; border-radius: 8px; margin-bottom: 4px; border: 1px solid #f9ebaf; font-size: 0.8rem; }
+        .btn-final { width: 100%; padding: 16px; border: none; border-radius: 15px; font-weight: bold; font-size: 1.1rem; cursor: pointer; background: #25d366; color: white; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="step1" class="step active">
+        <div class="card">
+            <h2>🚲 PEDIDO ECO</h2>
+            <input type="text" id="userName" placeholder="¿A nombre de quién?">
+            <label>Selecciona tu ubicación:</label>
+            <select id="localidadSel" onchange="centrarMapa()">
+                <option value="">-- Ciudad --</option>
+                <option value="Pimampiro">Pimampiro</option>
+                <option value="Mira">Mira</option>
+                <option value="El Angel">El Ángel</option>
+                <option value="El Juncal">El Juncal</option>
+            </select>
+            <div id="map"></div>
+            <button class="btn-final" style="background:var(--dark); margin-top:15px;" onclick="irAlPaso2()">Confirmar Ubicación</button>
+        </div>
+    </div>
+
+    <div id="step2" class="step">
+        <div class="card">
+            <button onclick="cambiarPaso(1)" style="border:none; background:none; color:var(--primary); font-weight:bold; cursor:pointer;">⬅ Volver</button>
+            <h2 style="margin-top:10px;">Restaurantes</h2>
+            <div id="listaLocales"></div>
+        </div>
+    </div>
+
+    <div id="step3" class="step">
+        <div class="card" style="padding-bottom: 120px;">
+            <button onclick="cambiarPaso(2)" style="border:none; background:none; color:var(--primary); font-weight:bold; cursor:pointer;">⬅ Otros Locales</button>
+            <h2 id="tituloRestaurante">Menú</h2>
+            <div id="contenedorMenu"></div>
+        </div>
+        <div class="footer-pedido">
+            <div id="resumenItems" style="max-height: 70px; overflow-y: auto; margin-bottom: 8px;"></div>
+            <div style="display:flex; justify-content: space-between; font-size:0.95rem; margin-bottom:8px;">
+                <span>Total: <b>$<span id="total">0.00</span></b></span>
+                <span style="color:var(--secondary)">Puntos ECO: <b id="pts">0</b></span>
+            </div>
+            <button class="btn-final" onclick="enviarWhatsApp()">🚀 PEDIDO ECO</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let map, marker, carrito = [], localActual = "";
+const COMISION = 0.03;
+
+const cobertura = {
+    "Pimampiro": ["Pizzería Sahara", "La Mega Esquina"],
+    "El Juncal": ["Pizzería Sahara"],
+    "Mira": ["Nostra Pizza"],
+    "El Angel": ["Nostra Pizza"]
+};
+
+const menus = {
+    "Pizzería Sahara": [
+        { cat: "PROMOCIONES", n: "2 Pizzas Medianas", d: "Cualquier sabor", p: { Promo: 10.00 } },
+        { cat: "PROMOCIONES", n: "3 Pizzas Personales", d: "Económica", p: { Promo: 10.00 } },
+        { cat: "PIZZAS TRADICIONALES", n: "Margarita / Hawaiana / Americana / Peperoni", d: "Salsa de tomate y queso", p: { Per: 3.50, Med: 6.00, Gra: 12.00, ExG: 17.00, Jum: 25.00 } },
+        { cat: "PIZZAS ESPECIALES", n: "Boloñesa / Azteca / Pollo / Vegetariana", d: "Ingredientes premium", p: { Per: 3.50, Med: 6.00, Gra: 12.00, ExG: 17.00, Jum: 25.00 } },
+        { cat: "SHAWARMAS", n: "Shawarma de Pollo", d: "Pan árabe y vegetales", p: { Único: 2.50 } },
+        { cat: "LASAÑAS", n: "Lasaña", d: "Carne o Pollo", p: { Único: 5.00 } }
+    ],
+    "La Mega Esquina": [
+        { cat: "SALCHIPAPAS", n: "Salchipapa Simple", d: "Papas y salchicha", p: { Único: 1.75 } },
+        { cat: "SALCHIPAPAS", n: "Salchipapa Especial", d: "+ Huevo y queso", p: { Único: 2.50 } },
+        { cat: "PLATOS FUERTES", n: "Papi Pollo / Carne", d: "Proteína + papas", p: { Único: 3.00 } },
+        { cat: "ALITAS BBQ", n: "Alitas", d: "Porción + papas", p: { "6 Unid": 4.25, "12 Unid": 8.00 } }
+    ],
+"Nostra Pizza": [
+    { cat: "PIZZAS", n: "Americana / Hawaiana / Boloñesa", d: "Personal, Mediana o Grande", p: { Personal: 3.25, Mediana: 6.00, Grande: 12.00 } },
+    { cat: "PIZZAS", n: "Nostra / Azteca / Vegetariana", d: "Personal, Mediana o Grande", p: { Personal: 3.25, Mediana: 6.00, Grande: 12.00 } },
+    { cat: "ENTRADAS", n: "Flautas de Pollo", d: "2 rollos + queso y ensalada", p: { Único: 3.25 } },
+    { cat: "ENTRADAS", n: "Nachos con Carne", d: "Boloñesa y queso derretido", p: { Único: 3.25 } },
+    { cat: "ENTRADAS", n: "Picadita Nostra", d: "Papas, carnes y peperoni", p: { Único: 3.25 } },
+    { cat: "PLATOS FUERTES", n: "Lasaña (Carne o Pollo)", d: "+ 4 porciones pan de ajo", p: { Único: 5.25 } },
+    { cat: "PLATOS FUERTES", n: "Alitas / Costillas Ahumadas", d: "Con papas y ensalada", p: { Porción: 3.25, Mixto: 4.25 } },
+    { cat: "BEBIDAS", n: "Gaseosa / Fuze Tea / Limonada", d: "Vaso, Jarra o Litro", p: { Vaso: 0.50, Litro: 1.50, Jarra: 2.25 } }
+]
+};
+
+function initMap() {
+    map = L.map('map').setView([0.3922, -77.9422], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    const redIcon = L.icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png', iconSize: [25, 41], iconAnchor: [12, 41] });
+    marker = L.marker([0.3922, -77.9422], {icon: redIcon}).addTo(map);
+    map.on('click', e => marker.setLatLng(e.latlng));
+}
+
+function centrarMapa() {
+    const coords = { "Pimampiro": [0.3922, -77.9422], "Mira": [0.5510, -78.0400], "El Angel": [0.6220, -77.9400], "El Juncal": [0.4700, -78.0300] };
+    const loc = document.getElementById('localidadSel').value;
+    if (coords[loc]) { map.setView(coords[loc], 16); marker.setLatLng(coords[loc]); }
+}
+
+function irAlPaso2() {
+    const loc = document.getElementById('localidadSel').value;
+    if(!document.getElementById('userName').value || !loc) return alert("Faltan datos.");
+    const lista = document.getElementById('listaLocales');
+    lista.innerHTML = "";
+    cobertura[loc].forEach(l => { lista.innerHTML += `<button class="btn-local" onclick="abrirMenu('${l}')">${l} ➔</button>`; });
+    cambiarPaso(2);
+}
+
+function abrirMenu(l) {
+    localActual = l;
+    document.getElementById('tituloRestaurante').innerText = l;
+    const cont = document.getElementById('contenedorMenu');
+    cont.innerHTML = "";
+    let ultimaCat = "";
+    menus[l].forEach(p => {
+        if(p.cat !== ultimaCat) { cont.innerHTML += `<div class="seccion-titulo">${p.cat}</div>`; ultimaCat = p.cat; }
+        let btns = "";
+        for(let sz in p.p) {
+            let pf = (p.p[sz] * (1 + COMISION)).toFixed(2);
+            btns += `<button class="btn-p" onclick="add('${p.n} ${sz}', ${pf})">${sz}: $${pf}</button>`;
+        }
+        cont.innerHTML += `<div class="producto"><div class="info-p"><b>${p.n}</b><br><small>${p.d}</small></div><div class="grid-precios">${btns}</div></div>`;
+    });
+    cambiarPaso(3);
+}
+
+function add(n, p) { carrito.push({ id: Date.now(), n, p }); renderCarrito(); }
+function eliminar(id) { carrito = carrito.filter(i => i.id !== id); renderCarrito(); }
+function renderCarrito() {
+    const res = document.getElementById('resumenItems');
+    res.innerHTML = carrito.map(i => `<div class="item-carrito"><span>${i.n}</span><span>$${i.p} <button onclick="eliminar(${i.id})" style="border:none;background:none;color:red;cursor:pointer;">✕</button></span></div>`).join('');
+    const total = carrito.reduce((s, i) => s + parseFloat(i.p), 0);
+    document.getElementById('total').innerText = total.toFixed(2);
+    document.getElementById('pts').innerText = Math.floor(total * 5);
+}
+
+async function enviarWhatsApp() {
+    if(carrito.length === 0) return alert("Carrito vacío.");
+    
+    const pos = marker.getLatLng();
+    const cliente = document.getElementById('userName').value;
+    const total = document.getElementById('total').innerText;
+    const puntos = document.getElementById('pts').innerText;
+    const pedidoTexto = carrito.map(i => i.n).join(", ");
+    const gpsLink = `https://www.google.com/maps?q=${pos.lat},${pos.lng}`;
+    
+    // CORREGIDO: URL entre comillas
+    const urlSheet = "https://script.google.com/macros/s/AKfycbzt0IGERpb_fOEgLn96ph_V4uPdS9AqG_NMQdYkgtBDkrc8uVufnOuQ9IaRZWHcL9cvIQ/exec";
+    
+    const datosParaSheet = {
+        cliente: cliente,
+        local: localActual,
+        pedido: pedidoTexto,
+        total: total,
+        puntos: puntos,
+        gps: gpsLink
+      };
+
+    fetch(urlSheet, {
+        method: 'POST',
+        mode: 'no-cors',
+        body: JSON.stringify(datosParaSheet)
+    });
+
+    const msj = `*PEDIDO ECO*%0A*Cliente:* ${cliente}%0A*Local:* ${localActual}%0A*Pedido:* ${pedidoTexto}%0A*Total:* $${total}%0A*Puntos:* ${puntos}%0A*Ubicación:* ${gpsLink}`;
+    window.open(`https://wa.me/593981101007?text=${msj}`, '_blank');
+}
+
+function cambiarPaso(n) {
+    document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+    document.getElementById('step' + n).classList.add('active');
+    if(n === 1) setTimeout(() => map.invalidateSize(), 400);
+}
+
+window.onload = initMap;
+</script>
+</body>
+</html>
